@@ -1,0 +1,45 @@
+{
+    "appKeys": {},
+    "capabilities": [
+        ""
+    ],
+    "companyName": "yasuos.com",
+    "longName": "Metronome",
+    "projectType": "native",
+    "resources": {
+        "media": [
+            {
+                "file": "images/start.png",
+                "name": "IMG_ACT_START",
+                "targetPlatforms": [
+                    "aplite",
+                    "basalt",
+                    "chalk"
+                ],
+                "type": "png"
+            },
+            {
+                "file": "images/stop.png",
+                "name": "IMG_ACT_STOP",
+                "targetPlatforms": [
+                    "aplite",
+                    "basalt",
+                    "chalk"
+                ],
+                "type": "png"
+            }
+        ]
+    },
+    "sdkVersion": "3",
+    "shortName": "Metronome",
+    "targetPlatforms": [
+        "aplite",
+        "basalt",
+        "chalk"
+    ],
+    "uuid": "226b2c7b-127e-4cd3-8655-18bae1df6af4",
+    "versionLabel": "1.0",
+    "watchapp": {
+        "watchface": false
+    }
+}
