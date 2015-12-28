@@ -3,7 +3,7 @@
 #define WAKEUP_REASON 0
 #define PERSIST_KEY_WAKEUP_ID 42
 
-static Window *window = NULL;
+static Window *s_window = NULL;
 static TextLayer *s_text_layer = NULL;
 
 static ActionBarLayer *s_action_bar;
@@ -11,6 +11,9 @@ static GBitmap *s_icon_start;
 static GBitmap *s_icon_stop;
 
 static WakeupId s_wakeup_id = 0;
+static char s_buffer[32];
+
+
 
 static void _text_layer_set_text( const char *text ){
     if( s_text_layer != NULL ){
@@ -21,7 +24,6 @@ static void _text_layer_set_text( const char *text ){
 static void check_wakeup() {
     // Get the ID
     s_wakeup_id = persist_read_int(PERSIST_KEY_WAKEUP_ID);
-
     if (s_wakeup_id > 0) {
         // There is a wakeup scheduled soon
         time_t timestamp = 0;
@@ -29,39 +31,32 @@ static void check_wakeup() {
         int seconds_remaining = timestamp - time(NULL);
         
         // Show how many seconds to go
-        static char s_buffer[64];
         snprintf(s_buffer, sizeof(s_buffer), "Vibes works\nafter %d sec.", seconds_remaining);
         _text_layer_set_text(s_buffer);
-
-        //APP_LOG( APP_LOG_LEVEL_DEBUG, s_buffer );
     }
 }
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
-    check_wakeup();
+    if( !app_worker_is_running()){
+        check_wakeup();
+    }
 }
 
 static void wakeup_start(){
     //Check the event is not already scheduled
     if (!wakeup_query(s_wakeup_id, NULL)) {
         // Current time + 30 seconds
+        //time_t future_time = time(NULL) + 300;
         time_t future_time = time(NULL) + 15;
 
-        // Schedule wakeup event and keep the WakeupId
-        s_wakeup_id = wakeup_schedule(future_time, WAKEUP_REASON, true);
-        persist_write_int(PERSIST_KEY_WAKEUP_ID, s_wakeup_id);
 
-        APP_LOG( APP_LOG_LEVEL_DEBUG, "waveup_start_1" );
-    } else {
-        //check_wakeup();
-        //APP_LOG( APP_LOG_LEVEL_DEBUG, "waveup_start_2" );
-    }    
+        // Schedule wakeup event and keep the WakeupId
+        s_wakeup_id = wakeup_schedule(future_time, WAKEUP_REASON, false );
+        persist_write_int(PERSIST_KEY_WAKEUP_ID, s_wakeup_id);
+    }
 }
 
 static void wakeup_handler(WakeupId id, int32_t reason) {
-    // The app has woken!
-    //text_layer_set_text(s_text_layer, "It's time.");
-
     vibes_short_pulse();
     
     // Delete the ID
@@ -74,16 +69,27 @@ static void wakeup_handler(WakeupId id, int32_t reason) {
 }
 
 static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
+    int id = persist_read_int(PERSIST_KEY_WAKEUP_ID);
+    
+    if( id <= 0 ) {
+        wakeup_start();
+        
+        action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_stop );
+    } else {
+        _text_layer_set_text("Press Up button\nVibes works.");
+        action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_start );
+
+        persist_delete(PERSIST_KEY_WAKEUP_ID);
+        wakeup_cancel_all();        
+    }
 }
 
+
 static void up_click_handler(ClickRecognizerRef recognizer, void *context) {
-    //_text_layer_set_text( "Vibes works\nevery 5 minutes.");
-    
     wakeup_start();
 }
 
 static void down_click_handler(ClickRecognizerRef recognizer, void *context) {
-    //_text_layer_set_text("Stop vibes.");
     _text_layer_set_text("Press Up button\nVibes works.");
 
     persist_delete(PERSIST_KEY_WAKEUP_ID);
@@ -102,7 +108,7 @@ static void window_load(Window *window) {
 
     // Initialize the action bar:
     s_action_bar = action_bar_layer_create();
-    
+
     // Associate the action bar with the window:
     action_bar_layer_add_to_window(s_action_bar, window);
 
@@ -113,10 +119,12 @@ static void window_load(Window *window) {
     // Set the icons:
     s_icon_start = gbitmap_create_with_resource(RESOURCE_ID_IMG_ACT_START);
     s_icon_stop = gbitmap_create_with_resource(RESOURCE_ID_IMG_ACT_STOP);
-    
+/*
     action_bar_layer_set_icon(s_action_bar, BUTTON_ID_UP, s_icon_start);
     action_bar_layer_set_icon(s_action_bar, BUTTON_ID_DOWN, s_icon_stop );
-
+*/
+    action_bar_layer_set_icon(s_action_bar, BUTTON_ID_SELECT, s_icon_start );
+    
     //
     s_text_layer = text_layer_create((GRect) { .origin = { 0, 72 }, .size = { bounds.size.w-ACTION_BAR_WIDTH , 40 } });
     text_layer_set_text_alignment(s_text_layer, GTextAlignmentCenter);
@@ -124,9 +132,7 @@ static void window_load(Window *window) {
 
     // 動作しているのか確認する
     s_wakeup_id = persist_read_int(PERSIST_KEY_WAKEUP_ID);
-    if (s_wakeup_id > 0) {
-        _text_layer_set_text( "Vibes works\nevery 5 minutes.");
-    }else{
+    if( s_wakeup_id <= 0) {
         _text_layer_set_text("Press Up button\nVibes works.");
     }
    
@@ -135,6 +141,7 @@ static void window_load(Window *window) {
 
 static void window_unload(Window *window) {
     action_bar_layer_destroy( s_action_bar );
+    
     text_layer_destroy(s_text_layer);
     gbitmap_destroy(s_icon_start);
     gbitmap_destroy(s_icon_stop);
@@ -143,18 +150,23 @@ static void window_unload(Window *window) {
 }
 
 static void init(void) {
-    window = window_create();
-    window_set_window_handlers(window, (WindowHandlers) {
+    s_window = window_create();
+    if( s_window == NULL ) {
+        return;
+    }
+    
+    window_set_window_handlers(s_window, (WindowHandlers) {
         .load = window_load,
         .unload = window_unload,
     });
-
+/*
     // Subscribe to Wakeup API
     wakeup_service_subscribe(wakeup_handler);
     
-    //
+    // Subscribe to tick timer
     tick_timer_service_subscribe(SECOND_UNIT, tick_handler);
-
+*/
+    
     // Was this a wakeup launch?
     if (launch_reason() == APP_LAUNCH_WAKEUP) {
         // The app was started by a wakeup
@@ -165,15 +177,23 @@ static void init(void) {
         wakeup_get_launch_event(&id, &reason);
         wakeup_handler(id, reason);
     } else {
+        // Subscribe to Wakeup API
+        wakeup_service_subscribe(wakeup_handler);
+    
         const bool animated = true;
-        window_stack_push(window, animated);
+        window_stack_push(s_window, animated);
     }
+
+    // Subscribe to tick timer
+    tick_timer_service_subscribe(SECOND_UNIT, tick_handler);
+
+    APP_LOG( APP_LOG_LEVEL_DEBUG, "window_init" );
 }
 
 static void deinit(void) {
     tick_timer_service_unsubscribe();
     
-    window_destroy(window);
+    window_destroy(s_window);
     APP_LOG( APP_LOG_LEVEL_DEBUG, "deinit" );
 }
 
